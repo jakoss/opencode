@@ -24,6 +24,14 @@ Generated clients follow the assembled public `HttpApi`. GitHub issues own activ
 | [Session](./session.md) | Explain prompt admission, execution, instructions, compaction, and recovery boundaries. |
 | [Tools](./tools.md)     | Explain tool construction, registration, execution, and outcome laws.                   |
 
+## Proposed Contracts
+
+Designs settled enough to write down, but not yet implemented. They become Current Contracts when the behavior ships.
+
+| Document                                    | Status                                                                                          | Job                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Provider accounts](./provider-accounts.md) | Proposed, open for review on [issue #51152](https://github.com/anomalyco/opencode/issues/51152) | Bind a locally stored provider account to a project by name, and select it per Location. |
+
 ## Decision Records
 
 | Document                                       | Status                   | Job                                                                                                       |
