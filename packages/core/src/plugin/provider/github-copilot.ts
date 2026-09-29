@@ -169,8 +169,24 @@ export const GithubCopilotPlugin = define({
       connection?: Effect.Success<ReturnType<typeof ctx.integration.connection.active>>
     } = {}
 
+    // A Location bound by config discovers through that account; otherwise the globally active
+    // one applies. A bound label that names no account logs and leaves the cache empty rather
+    // than discovering through another license; the resolver reports the actionable failure.
+    const select = Effect.fn("GithubCopilotPlugin.select")(function* () {
+      const info = yield* providers.get(Provider.ID.githubCopilot)
+      return yield* ctx.integration.connection
+        .select({ integrationID: Integration.ID.make("github-copilot"), account: info?.account })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to select the bound GitHub Copilot account", { cause: error }).pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        )
+    })
+
     const load = Effect.fn("GithubCopilotPlugin.load")(function* () {
-      const connection = yield* ctx.integration.connection.active("github-copilot")
+      const connection = yield* select()
       const credential = connection
         ? yield* ctx.integration.connection.resolve(connection).pipe(Effect.orElseSucceed(() => undefined))
         : undefined
@@ -198,11 +214,8 @@ export const GithubCopilotPlugin = define({
           Effect.logWarning("failed to sync GitHub Copilot models", { cause }).pipe(Effect.as(undefined)),
         ),
       )
-      if (
-        IntegrationConnection.key(connection) !==
-        IntegrationConnection.key(yield* ctx.integration.connection.active("github-copilot"))
-      )
-        return
+      // The binding or the active account moved while discovery was in flight.
+      if (IntegrationConnection.key(connection) !== IntegrationConnection.key(yield* select())) return
       loaded.baseURL = url
       loaded.token = credential.refresh
       loaded.models = remote
@@ -243,11 +256,31 @@ export const GithubCopilotPlugin = define({
       }
     })
     const refresh = () => loading.withPermit(load().pipe(Effect.andThen(ctx.provider.reload())))
+    // Reloading costs a Copilot request, and these events are far broader than a Copilot change.
+    // Compare the connection this Location would use now against the one discovery last used, so
+    // only a genuine change to the effective account re-queries.
+    const refreshIfChanged = Effect.fn("GithubCopilotPlugin.refreshIfChanged")(function* () {
+      if (IntegrationConnection.key(yield* select()) === IntegrationConnection.key(loaded.connection)) return
+      yield* refresh()
+    })
     yield* bus.subscribe(Credential.Event.Switched).pipe(
       Stream.filter((event) => event.data.integrationID === Integration.ID.make("github-copilot")),
-      Stream.runForEach(refresh),
+      Stream.runForEach(refreshIfChanged),
       Effect.forkScoped({ startImmediately: true }),
     )
+    // Connect, rename, and removal all change which credential a bound label names, and a config
+    // edit can rebind this Location, so discovery follows those too.
+    yield* bus.subscribe(Credential.Event.Updated).pipe(
+      Stream.runForEach(refreshIfChanged),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    yield* ctx.event
+      .subscribe()
+      .pipe(
+        Stream.filter((event) => event.type === "config.updated"),
+        Stream.runForEach(refreshIfChanged),
+        Effect.forkScoped({ startImmediately: true }),
+      )
     yield* refresh().pipe(Effect.forkScoped)
     yield* ctx.aisdk.hook(
       "sdk",

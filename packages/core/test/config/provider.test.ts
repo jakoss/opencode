@@ -546,6 +546,35 @@ describe("ConfigProviderPlugin.Plugin", () => {
     }),
   )
 
+  it.effect("binds a provider to a stored account, per project", () =>
+    Effect.gen(function* () {
+      const providers = yield* Provider.Service
+      const providerID = Provider.ID.make("acme")
+
+      yield* addPlugin([
+        new Document({
+          type: "document",
+          info: decode({ providers: { acme: { account: "Personal" } } }),
+        }),
+      ])
+      expect((yield* providers.get(providerID))?.account).toBe("Personal")
+
+      // A project document configures itself after the global one, so a project can pick a
+      // different account of the same provider without editing the global config.
+      yield* addPlugin([
+        new Document({
+          type: "document",
+          info: decode({ providers: { acme: { account: "Work" } } }),
+        }),
+      ])
+      expect((yield* providers.get(providerID))?.account).toBe("Work")
+
+      // Configuration names an account; it never carries the credential itself.
+      yield* addPlugin([new Document({ type: "document", info: decode({ providers: { acme: {} } }) })])
+      expect((yield* providers.get(providerID))?.account).toBe("Work")
+    }),
+  )
+
   it.effect("loads configured providers and applies later model overrides", () =>
     withEnv({ CUSTOM_API_KEY: "secret" }, () =>
       Effect.gen(function* () {

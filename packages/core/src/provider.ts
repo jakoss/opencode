@@ -369,11 +369,10 @@ const layer = Layer.effect(
           if (record.provider.activation === "disabled") return false
           const integration = byID.get(record.provider.integrationID ?? Integration.ID.make(record.provider.id))
           // Never combine the previous account's discovered endpoints/models with a new connection.
-          if (
-            record.sourceConnection &&
-            IntegrationConnection.key(record.sourceConnection) !==
-              IntegrationConnection.key(integration?.connections[0])
-          )
+          // A bound provider compares against its own account rather than the globally active one,
+          // so an unrelated switch cannot strip its discovered models.
+          const selected = IntegrationConnection.match(integration?.connections ?? [], record.provider.account)[0]
+          if (record.sourceConnection && IntegrationConnection.key(record.sourceConnection) !== IntegrationConnection.key(selected))
             return false
           if (record.provider.activation === "enabled") return true
           if (integration?.connections.length) return true

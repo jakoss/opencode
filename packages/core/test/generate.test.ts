@@ -30,6 +30,7 @@ const integrations = Layer.mock(Integration.Service, {
   revision: () => 0,
   connection: {
     active: () => Effect.undefined,
+    select: () => Effect.undefined,
     resolve: () => Effect.die("unused"),
     key: () => Effect.die("unused"),
     activate: () => Effect.die("unused"),

@@ -125,7 +125,43 @@ export class AttemptNotFoundError extends Schema.TaggedError<AttemptNotFoundErro
   attemptID: AttemptID,
 }) {}
 
-export type Error = CodeRequiredError | AuthorizationError | AttemptNotFoundError
+/**
+ * A config `account` label does not name exactly one stored account. Failing here is deliberate:
+ * silently using another account spends the wrong license, which is worse than a request that
+ * does not start. `labels` are the account labels that do exist, so the message can name them.
+ */
+export class AccountNotFoundError extends Schema.TaggedError<AccountNotFoundError>()("Integration.AccountNotFound", {
+  integrationID: ID,
+  account: Schema.String,
+  labels: Schema.Array(Schema.String),
+}) {
+  override get message() {
+    const known = this.labels.length ? this.labels.map((label) => `"${label}"`).join(", ") : "none"
+    return `Account "${this.account}" is not connected for ${this.integrationID}. Connected accounts: ${known}. Connect it or change "providers.${this.integrationID}.account" to a connected account label.`
+  }
+}
+
+export class AccountAmbiguousError extends Schema.TaggedError<AccountAmbiguousError>()(
+  "Integration.AccountAmbiguous",
+  {
+    integrationID: ID,
+    account: Schema.String,
+    labels: Schema.Array(Schema.String),
+  },
+) {
+  override get message() {
+    return `Account "${this.account}" matches multiple accounts for ${this.integrationID}: ${this.labels
+      .map((label) => `"${label}"`)
+      .join(", ")}. Rename them so each label is unique, or point "providers.${this.integrationID}.account" at a unique label.`
+  }
+}
+
+export type Error =
+  | CodeRequiredError
+  | AuthorizationError
+  | AttemptNotFoundError
+  | AccountNotFoundError
+  | AccountAmbiguousError
 
 export { Event } from "@opencode/schema/integration"
 
@@ -165,6 +201,15 @@ export interface Interface extends State.Transformable<Editor> {
   readonly connection: {
     /** Returns the active connection for one integration. */
     readonly active: (id: ID) => Effect.Effect<IntegrationConnection.Info | undefined>
+    /**
+     * Returns the connection this Location uses for one integration: the account named by config
+     * when there is one, otherwise the active connection. A bound label that names no account, or
+     * more than one, fails instead of falling back, so a project never spends another license.
+     */
+    readonly select: (input: {
+      readonly integrationID: ID
+      readonly account: string | undefined
+    }) => Effect.Effect<IntegrationConnection.Info | undefined, AccountNotFoundError | AccountAmbiguousError>
     /** Resolves a connection into usable credential material. */
     readonly resolve: (
       connection: IntegrationConnection.Info,
@@ -692,6 +737,25 @@ const layer = Layer.effect(
         active: Effect.fn("Integration.connection.active")(function* (id) {
           const entry = state.get().integrations.get(id)
           return resolveConnections(entry, yield* credentials.list(id))[0]
+        }),
+        select: Effect.fn("Integration.connection.select")(function* (input) {
+          const entry = state.get().integrations.get(input.integrationID)
+          const connections = resolveConnections(entry, yield* credentials.list(input.integrationID))
+          const labels = connections.flatMap((connection) => (connection.type === "credential" ? [connection.label] : []))
+          const matched = IntegrationConnection.match(connections, input.account)
+          if (matched.length === 1) return matched[0]
+          if (input.account === undefined) return undefined
+          if (matched.length === 0)
+            return yield* new AccountNotFoundError({
+              integrationID: input.integrationID,
+              account: input.account,
+              labels,
+            })
+          return yield* new AccountAmbiguousError({
+            integrationID: input.integrationID,
+            account: input.account,
+            labels: matched.map((connection) => (connection.type === "credential" ? connection.label : connection.name)),
+          })
         }),
         resolve: Effect.fn("Integration.connection.resolve")(function* (connection) {
           if (connection.type === "env") {

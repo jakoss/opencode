@@ -94,6 +94,7 @@ export function host(overrides: Overrides = {}): Plugin.Context {
       reload: () => Effect.die("unused integration.reload"),
       connection: {
         active: () => Effect.die("unused integration.connection.active"),
+        select: () => Effect.die("unused integration.connection.select"),
         resolve: () => Effect.die("unused integration.connection.resolve"),
         status: () => Effect.die("unused integration.connection.status"),
       },
@@ -310,6 +311,11 @@ export function integrationHost(integration: Integration.Interface): Plugin.Cont
     reload: integration.reload,
     connection: {
       active: (id) => integration.connection.active(Integration.ID.make(id)),
+      select: (input) =>
+        integration.connection.select({
+          integrationID: Integration.ID.make(input.integrationID),
+          account: input.account,
+        }),
       resolve: (connection) =>
         integration.connection.resolve(
           connection.type === "credential" ? { ...connection, id: Credential.ID.make(connection.id) } : connection,

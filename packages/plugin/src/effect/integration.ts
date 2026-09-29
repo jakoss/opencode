@@ -92,6 +92,15 @@ export interface IntegrationDomain extends Omit<IntegrationApi<unknown>, "wellkn
   readonly reload: () => Effect.Effect<void>
   readonly connection: {
     readonly active: (integrationID: string) => Effect.Effect<ConnectionInfo | undefined>
+    /**
+     * Returns the connection this Location uses: the account named by config when there is one,
+     * otherwise the active connection. A bound label that names no account, or more than one,
+     * fails instead of falling back, so a project never spends another license.
+     */
+    readonly select: (input: {
+      readonly integrationID: string
+      readonly account: string | undefined
+    }) => Effect.Effect<ConnectionInfo | undefined, unknown>
     readonly resolve: (connection: ConnectionInfo) => Effect.Effect<Credential.Value | undefined, unknown>
     /** Reports a problem with a connection, such as a required sign-in; `undefined` clears it. */
     readonly status: (input: {

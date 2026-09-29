@@ -370,6 +370,11 @@ describe("ModelResolver", () => {
           expect(id).toBe(Integration.ID.make("gateway"))
           return Effect.undefined
         },
+        select: (input) => {
+          expect(input.integrationID).toBe(Integration.ID.make("gateway"))
+          expect(input.account).toBeUndefined()
+          return Effect.undefined
+        },
         resolve: () => Effect.die("unused"),
         key: () => Effect.die("unused"),
         activate: () => Effect.die("unused"),

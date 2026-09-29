@@ -341,6 +341,11 @@ export const make = Effect.fn("PluginHost.make")(function* (
       reload: integration.reload,
       connection: {
         active: (id) => integration.connection.active(Integration.ID.make(id)),
+        select: (input) =>
+          integration.connection.select({
+            integrationID: Integration.ID.make(input.integrationID),
+            account: input.account,
+          }),
         resolve: (connection) =>
           integration.connection.resolve(
             connection.type === "credential" ? { ...connection, id: Credential.ID.make(connection.id) } : connection,

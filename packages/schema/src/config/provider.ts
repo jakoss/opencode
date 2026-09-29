@@ -87,6 +87,8 @@ export class Info extends Schema.Class<Info>("Config.Provider")({
   name: Schema.String.pipe(optional),
   env: Schema.String.pipe(Schema.Array, optional),
   package: Schema.String.pipe(optional),
+  /** Label of the locally stored account this project binds. Configuration never carries a token. */
+  account: Schema.String.pipe(optional),
   ...Overlays,
   models: Schema.Record(Schema.String, Model).pipe(optional),
 }) {}

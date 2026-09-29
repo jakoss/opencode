@@ -328,6 +328,7 @@ function resourceMcpLayer(
           revision: () => 0,
           connection: {
             active: unusedIntegration,
+            select: unusedIntegration,
             resolve: unusedIntegration,
             key: unusedIntegration,
             activate: unusedIntegration,

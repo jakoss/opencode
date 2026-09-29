@@ -681,6 +681,268 @@ describe("Integration", () => {
   })
 })
 
+describe("Integration.connection.select", () => {
+  const integrationID = Integration.ID.make("acme")
+  const methodID = Integration.MethodID.make("browser")
+  const authorize = () =>
+    Effect.succeed({
+      mode: "code" as const,
+      url: "https://example.com/authorize",
+      instructions: "Paste the code",
+      callback: (code: string) =>
+        Effect.succeed(
+          Credential.OAuth.make({ type: "oauth", methodID, access: "access", refresh: "refresh", expires: 1 }),
+        ),
+    })
+
+  it.effect("selects the account a project names rather than the active one", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      const personal = yield* credentials.create({
+        integrationID,
+        label: "Personal",
+        value: Credential.Key.make({ type: "key", key: "personal-key" }),
+      })
+      const work = yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.Key.make({ type: "key", key: "work-key" }),
+      })
+      yield* integrations.connection.activate(personal.id)
+
+      // The active account is the fallback; naming an account overrides it for this Location only.
+      expect(yield* integrations.connection.select({ integrationID, account: undefined })).toEqual({
+        type: "credential",
+        method: "key",
+        id: personal.id,
+        label: "Personal",
+      })
+      expect(yield* integrations.connection.select({ integrationID, account: "Work" })).toEqual({
+        type: "credential",
+        method: "key",
+        id: work.id,
+        label: "Work",
+      })
+      expect(yield* integrations.connection.select({ integrationID, account: "work" })).toEqual({
+        type: "credential",
+        method: "key",
+        id: work.id,
+        label: "Work",
+      })
+    }),
+  )
+
+  it.effect("keeps a bound account when the globally active one changes", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      const personal = yield* credentials.create({
+        integrationID,
+        label: "Personal",
+        value: Credential.Key.make({ type: "key", key: "personal-key" }),
+      })
+      const work = yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.Key.make({ type: "key", key: "work-key" }),
+      })
+      yield* integrations.connection.activate(personal.id)
+
+      // A switch elsewhere must not retarget a project that names its own account.
+      yield* integrations.connection.select({ integrationID, account: "Work" })
+      yield* integrations.connection.activate(work.id)
+      expect(yield* integrations.connection.select({ integrationID, account: "Work" })).toEqual({
+        type: "credential",
+        method: "key",
+        id: work.id,
+        label: "Work",
+      })
+
+      // An unbound Location follows the switch instead.
+      expect(yield* integrations.connection.select({ integrationID, account: undefined })).toEqual({
+        type: "credential",
+        method: "key",
+        id: work.id,
+        label: "Work",
+      })
+    }),
+  )
+
+  it.effect("fails with the available labels when the named account is missing", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      yield* credentials.create({
+        integrationID,
+        label: "Personal",
+        value: Credential.Key.make({ type: "key", key: "personal-key" }),
+      })
+
+      const error = yield* Effect.flip(
+        integrations.connection.select({ integrationID, account: "Work" }),
+      )
+      expect(error._tag).toBe("Integration.AccountNotFound")
+      if (error._tag !== "Integration.AccountNotFound") return
+      expect(error.account).toBe("Work")
+      expect(error.labels).toEqual(["Personal"])
+      expect(error.message).toContain("Work")
+      expect(error.message).toContain("Personal")
+    }),
+  )
+
+  it.effect("fails when a removed or renamed account is still named", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      const personal = yield* credentials.create({
+        integrationID,
+        label: "Personal",
+        value: Credential.Key.make({ type: "key", key: "personal-key" }),
+      })
+      const work = yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.Key.make({ type: "key", key: "work-key" }),
+      })
+
+      yield* credentials.update(work.id, { label: "Work SSO" })
+      expect(Exit.isFailure(yield* Effect.exit(integrations.connection.select({ integrationID, account: "Work" })))).toBe(
+        true,
+      )
+      expect(yield* integrations.connection.select({ integrationID, account: "Work SSO" })).toEqual({
+        type: "credential",
+        method: "key",
+        id: work.id,
+        label: "Work SSO",
+      })
+
+      // A removed account must not silently resolve to whoever became active.
+      yield* integrations.connection.remove(work.id)
+      const error = yield* Effect.flip(integrations.connection.select({ integrationID, account: "Work SSO" }))
+      expect(error._tag).toBe("Integration.AccountNotFound")
+      if (error._tag !== "Integration.AccountNotFound") return
+      expect(error.labels).toEqual(["Personal"])
+      expect(yield* integrations.connection.select({ integrationID, account: undefined })).toEqual({
+        type: "credential",
+        method: "key",
+        id: personal.id,
+        label: "Personal",
+      })
+    }),
+  )
+
+  it.effect("fails when the named account matches more than one credential", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      // Labels are user-facing, so duplicates are possible; an ambiguous name must not pick one.
+      yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.Key.make({ type: "key", key: "work-key" }),
+      })
+      yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.Key.make({ type: "key", key: "work-key-2" }),
+      })
+
+      const error = yield* Effect.flip(integrations.connection.select({ integrationID, account: "Work" }))
+      expect(error._tag).toBe("Integration.AccountAmbiguous")
+      if (error._tag !== "Integration.AccountAmbiguous") return
+      expect(error.labels).toEqual(["Work", "Work"])
+      expect(error.message).toContain("Work")
+    }),
+  )
+
+  it.effect("returns nothing when an unbound integration has no connection", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      yield* integrations.transform((editor) =>
+        editor.method.update({ integrationID, method: { id: methodID, type: "oauth", label: "Browser" }, authorize }),
+      )
+      expect(yield* integrations.connection.select({ integrationID, account: undefined })).toBeUndefined()
+    }),
+  )
+
+  it.effect("refreshes the named account and leaves the other account alone", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      const refreshed = new Array<string>()
+      yield* integrations.transform((editor) =>
+        editor.method.update({
+          integrationID,
+          method: { id: methodID, type: "oauth", label: "Browser" },
+          authorize,
+          refresh: (credential) =>
+            Effect.sync(() => {
+              refreshed.push(credential.refresh)
+              return Credential.OAuth.make({ ...credential, access: `access-${credential.refresh}` })
+            }),
+        }),
+      )
+      const personal = yield* credentials.create({
+        integrationID,
+        label: "Personal",
+        value: Credential.OAuth.make({
+          type: "oauth",
+          methodID,
+          access: "access-personal",
+          refresh: "personal",
+          expires: 1,
+        }),
+      })
+      const work = yield* credentials.create({
+        integrationID,
+        label: "Work",
+        value: Credential.OAuth.make({
+          type: "oauth",
+          methodID,
+          access: "access-work",
+          refresh: "work",
+          expires: 1,
+        }),
+      })
+      yield* integrations.connection.activate(personal.id)
+
+      // TestClock keeps now at 0, so both credentials are past expiry and eligible for refresh.
+      const connection = yield* integrations.connection.select({ integrationID, account: "Work" })
+      const value = connection && (yield* integrations.connection.resolve(connection))
+      expect(value?.type).toBe("oauth")
+      if (value?.type !== "oauth") return
+      expect(value.access).toBe("access-work")
+      expect(refreshed).toEqual(["work"])
+
+      // Only the selected account refreshed, and the new value was persisted for the next request.
+      const stored = yield* credentials.get(work.id)
+      expect(stored?.value.type).toBe("oauth")
+      if (stored?.value.type !== "oauth") return
+      expect(stored.value.access).toBe("access-work")
+      const untouched = yield* credentials.get(personal.id)
+      expect(untouched?.value.type).toBe("oauth")
+      if (untouched?.value.type !== "oauth") return
+      expect(untouched.value.access).toBe("access-personal")
+    }),
+  )
+})
+
 describe("AuthorizationError", () => {
   test("reports the underlying cause message", () => {
     expect(new Integration.AuthorizationError({ cause: new Error("Request failed: 401") }).message).toBe(

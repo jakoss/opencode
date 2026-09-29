@@ -106,6 +106,8 @@ export type Error =
   | UnresolvedProviderVariablesError
   | UnsupportedCompactionError
   | Integration.AuthorizationError
+  | Integration.AccountNotFoundError
+  | Integration.AccountAmbiguousError
 
 export interface Resolved {
   /** Route-level model for provider requests; its id is the provider API model id, which may differ from the catalog id. */
@@ -358,9 +360,11 @@ export const layer = Layer.effect(
     const aisdk = yield* AISDK.Service
     const load = Effect.fn("ModelResolver.resolveModel")(function* (selected: Info, variant?: VariantID) {
       const provider = yield* providers.get(selected.providerID)
-      const connection = yield* integrations.connection.active(
-        provider?.integrationID ?? Integration.ID.make(selected.providerID),
-      )
+      // A config-bound account selects the credential; otherwise the globally active one applies.
+      const connection = yield* integrations.connection.select({
+        integrationID: provider?.integrationID ?? Integration.ID.make(selected.providerID),
+        account: provider?.account,
+      })
       const credential = connection ? yield* integrations.connection.resolve(connection) : undefined
       const selectedVariant = yield* withVariant(selected, variant)
       const runtimeInfo: RuntimeInfo = {

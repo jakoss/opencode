@@ -68,6 +68,7 @@ export const Plugin = define({
           if (item.canonical !== undefined) provider.canonical = item.canonical
           if (item.name !== undefined) provider.name = item.name
           if (item.package !== undefined) provider.package = item.package
+          if (item.account !== undefined) provider.account = item.account
           if (item.settings !== undefined) provider.settings = Provider.mergeOverlay(provider.settings, item.settings)
           if (item.headers !== undefined) provider.headers = Provider.mergeHeaders(provider.headers, item.headers)
           if (item.body !== undefined) provider.body = Provider.mergeOverlay(provider.body, item.body)

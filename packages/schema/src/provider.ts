@@ -76,6 +76,8 @@ export const Info = Schema.Struct({
   name: Schema.String,
   activation: Activation,
   package: Package,
+  /** Label of the locally stored account bound to this Location, from config. Never a token. */
+  account: Schema.String.pipe(optional),
   ...Overlays,
 })
   .annotate({ identifier: "Provider.Info" })

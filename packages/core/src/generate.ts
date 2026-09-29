@@ -84,6 +84,11 @@ export const layer = Layer.effect(
 
     const text: Interface["text"] = (input) =>
       runText(input).pipe(
+        // A bound account that does not resolve is a misconfiguration, not a provider outage, so
+        // keep the message naming the provider, the configured label, and the labels that exist.
+        Effect.catchTag(["Integration.AccountNotFound", "Integration.AccountAmbiguous"], (error) =>
+          new UnavailableError({ message: error.message, service: error.integrationID }),
+        ),
         Effect.catchTag(
           "Integration.Authorization",
           () =>
