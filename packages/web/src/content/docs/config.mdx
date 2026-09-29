@@ -871,6 +871,33 @@ If a provider appears in both `enabled_providers` and `disabled_providers`, the 
 
 ---
 
+### Provider accounts
+
+If you connect the same provider more than once — two GitHub accounts, or a personal and a work account — OpenCode stores each connection separately and remembers the one you last activated. The `account` option binds one project to a specific one:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "github-copilot": {
+      "account": "Work"
+    }
+  }
+}
+```
+
+The value is the label of a connection you already created with `/connect`, matched case-insensitively. Configuration names an account; it never carries a token, so the config file is safe to commit.
+
+Because the binding lives in the project's own config, each project spends its own account. A work project bound to `Work` keeps using it while a personal project with no `account` follows whichever account is globally active, and the two can run at the same time. Titles and compaction use the same binding as the agent step.
+
+If the named account is not connected, or more than one connection carries that label, OpenCode reports the error and names the labels that do exist rather than quietly spending a different account. Connect the account, or point `account` at a label that is unique.
+
+:::note
+An `account` value applies to the provider it is set on. Providers that authenticate through an environment variable have no stored accounts to name, so the option has no effect on them.
+:::
+
+---
+
 ### Experimental
 
 The `experimental` key contains options that are under active development.
